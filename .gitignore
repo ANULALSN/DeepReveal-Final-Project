@@ -9,3 +9,5 @@ frontend/node_modules
 frontend/build
 .DS_Store
 npm-debug.log
+# Firebase Service Account Key (IMPORTANT: DO NOT COMMIT!)
+backend/firebase-service-account.json
