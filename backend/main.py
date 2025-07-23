@@ -1,3 +1,4 @@
+
 import os
 import cv2
 import numpy as np
@@ -14,7 +15,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import firebase_admin
 from firebase_admin import credentials, auth
+import json
 import warnings
+
+from dotenv import load_dotenv
+load_dotenv()  # This loads the .env file
 
 warnings.filterwarnings('ignore')
 
@@ -27,14 +32,40 @@ if not os.path.exists(MODEL_PATH):
     # In a deployment environment (like Docker), ensure it's copied.
     raise FileNotFoundError(f"Model file not found at {MODEL_PATH}.")
 
-# --- Firebase Initialization ---
-SERVICE_ACCOUNT_KEY_PATH = 'firebase-service-account.json' # Ensure this path is correct
-if not os.path.exists(SERVICE_ACCOUNT_KEY_PATH):
-    raise FileNotFoundError(f"Firebase service account key not found at {SERVICE_ACCOUNT_KEY_PATH}")
 
-cred = credentials.Certificate(SERVICE_ACCOUNT_KEY_PATH)
-if not firebase_admin._apps:
-    firebase_admin.initialize_app(cred)
+    
+# --- Firebase Initialization ---
+try:
+    # First try to get credentials from environment variable (for production)
+    FIREBASE_CREDENTIALS = os.getenv('FIREBASE_CREDENTIALS')
+    
+    if FIREBASE_CREDENTIALS:
+        # Production mode - use environment variable
+        try:
+            cred_dict = json.loads(FIREBASE_CREDENTIALS)
+            cred = credentials.Certificate(cred_dict)
+        except json.JSONDecodeError as e:
+            print(f"Error parsing Firebase credentials JSON: {e}")
+            raise
+    else:
+        # Development mode - try to use local JSON file
+        SERVICE_ACCOUNT_KEY_PATH = 'firebase-service-account.json'
+        if os.path.exists(SERVICE_ACCOUNT_KEY_PATH):
+            cred = credentials.Certificate(SERVICE_ACCOUNT_KEY_PATH)
+        else:
+            raise FileNotFoundError(f"Firebase service account key not found at {SERVICE_ACCOUNT_KEY_PATH}")
+    
+    # Initialize Firebase app if not already initialized
+    if not firebase_admin._apps:
+        firebase_admin.initialize_app(cred)
+        print("Firebase initialized successfully!")
+
+except Exception as e:
+    print(f"ERROR initializing Firebase: {str(e)}")
+    raise
+
+
+
 
 # --- FastAPI App Initialization ---
 app = FastAPI(
@@ -42,6 +73,9 @@ app = FastAPI(
     description="A backend API for the DeepReveal project to detect and localize deepfakes.",
     version="1.5.2" # Version updated for both CAM fixes
 )
+
+# Get port from environment variable for Render deployment
+PORT = int(os.getenv('PORT', 8000))
 
 # --- CORS Middleware ---
 app.add_middleware(
@@ -308,3 +342,8 @@ async def predict_image(file: UploadFile = File(...), current_user: dict = Depen
     except Exception as e:
         print(f"An error occurred during prediction: {str(e)}") # Log the actual error
         raise HTTPException(status_code=500, detail=f"An error occurred during processing: {str(e)}")
+
+# Add this at the very end of the file
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=PORT)
